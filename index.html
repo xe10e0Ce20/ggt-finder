@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gadget Finder Tool</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }
+        .container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
+        .section { margin-bottom: 30px; padding: 20px; border: 1px solid #eee; border-radius: 8px; }
+        h2 { margin-bottom: 15px; color: #333; }
+        .input-group { margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
+        label { font-weight: 600; color: #444; }
+        input, textarea, button { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        button { background: #165DFF; color: #fff; border: none; cursor: pointer; transition: background 0.3s; }
+        button:hover { background: #0E42D2; }
+        #fileInput { border: none; padding: 0; }
+        .command-input { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
+        #addCmdBtn { align-self: flex-start; padding: 6px 10px; font-size: 13px; }
+        #result { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; white-space: pre-wrap; max-height: 500px; overflow-y: auto; }
+        .tip { font-size: 12px; color: #666; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gadget Finder Tool</h1>
+
+        <!-- 文件上传区 -->
+        <div class="section">
+            <h2>1. 上传TXT文件</h2>
+            <div class="input-group">
+                <label for="fileInput">选择目标TXT文件</label>
+                <input type="file" id="fileInput" accept=".txt" required>
+                <div class="tip">文件需符合指令拆解格式，以连续2个及以上空格为分隔符</div>
+            </div>
+        </div>
+
+        <!-- 参数配置区 -->
+        <div class="section">
+            <h2>2. 配置处理参数</h2>
+            <div class="input-group">
+                <label for="csvName">CSV默认名称（留空为_disas.csv）</label>
+                <input type="text" id="csvName" placeholder="_disas.csv">
+            </div>
+            <div class="input-group">
+                <label for="maxLen">最大长度（留空为2）</label>
+                <input type="number" id="maxLen" placeholder="2" min="1">
+            </div>
+            <div class="input-group">
+                <label for="useRe">是否使用正则（y/n，留空为n）</label>
+                <input type="text" id="useRe" placeholder="n" maxlength="1">
+            </div>
+            <div class="input-group">
+                <label for="ignoreB">是否忽略B、BL、BC AL指令（y/n，留空为n）</label>
+                <input type="text" id="ignoreB" placeholder="n" maxlength="1">
+            </div>
+            <div class="input-group">
+                <label for="ignoreBc">是否忽略BC指令（y/n，留空为y）</label>
+                <input type="text" id="ignoreBc" placeholder="y" maxlength="1">
+            </div>
+            <div class="input-group">
+                <label>目标指令序列（输入后点击添加，空输入结束）</label>
+                <div id="commandList">
+                    <div class="command-input">
+                        <input type="text" class="cmdInput" placeholder="输入指令" required>
+                    </div>
+                </div>
+                <button id="addCmdBtn">添加指令</button>
+                <div class="tip">按顺序输入指令，最终会匹配gadget中是否包含该连续/非连续序列</div>
+            </div>
+        </div>
+
+        <!-- 执行与结果区 -->
+        <div class="section">
+            <h2>3. 执行处理</h2>
+            <button id="runBtn">开始处理</button>
+            <div id="result" placeholder="处理结果将显示在这里..."></div>
+        </div>
+    </div>
+
+    <script>
+        // 工具函数：复刻Py核心转换逻辑
+        // 十六进制转16位整数
+        function toInt16(str) {
+            return parseInt(str, 16);
+        }
+        // 16位整数转十六进制字符串（5位大写）
+        function toStr(int16) {
+            return int16.toString(16).toUpperCase().padStart(5, '0');
+        }
+        // 地址+2（十六进制）
+        function add2(addr) {
+            const addr16 = toInt16(addr);
+            return toStr(addr16 + 2);
+        }
+        // 匹配逻辑（正则/精确匹配）
+        function match(tar, input, useRe) {
+            if (useRe) {
+                const reg = new RegExp(`^${input}$`);
+                return reg.test(tar);
+            }
+            return tar === input;
+        }
+        // 获取跳转地址
+        function getBAddr(command) {
+            if (command.startsWith('BC')) {
+                return command.slice(-6, -1);
+            } else if (!command.includes('R')) {
+                return command.at(-9) + command.slice(-5, -1);
+            }
+            return '';
+        }
+
+        // 步骤1：TXT转CSV核心逻辑（无文件IO，返回处理后的数据数组）
+        function txtToCsvData(txtContent) {
+            const lines = txtContent.split('\n').map(line => line.trim()).filter(line => line);
+            const processedData = [];
+            const pattern = / {2,}/; // 连续2+空格分隔符
+
+            lines.forEach(line => {
+                // 找第一个分隔符
+                const match1 = line.match(pattern);
+                if (!match1) return;
+
+                // 临时替换第一个分隔符为逗号，找第二个分隔符
+                const tempLine = line.slice(0, match1.index) + ',' + line.slice(match1.index + match1[0].length);
+                const searchStart = match1.index + 1;
+                const match2 = tempLine.slice(searchStart).match(pattern);
+                if (!match2) return;
+
+                // 提取3列
+                const col1 = tempLine.slice(0, match1.index).slice(1); // 移除首字符
+                const start2 = match1.index + 1;
+                const end2 = searchStart + match2.index;
+                const col2 = tempLine.slice(start2, end2);
+                let col3Raw = tempLine.slice(searchStart + match2.index + match2[0].length);
+                // 标准化第3列空格
+                const col3Standardized = col3Raw.replace(pattern, '  ');
+                processedData.push({ col1, col2, col3: col3Standardized });
+            });
+
+            // 新增行逻辑
+            const newRows = [];
+            const commandsDict = Object.fromEntries(processedData.map(item => [item.col2, item.col3]));
+            processedData.forEach((row, index) => {
+                // 添加原始行
+                newRows.push({ _tempOrder: index, ...row });
+                // 第2列长度>5时新增行
+                if (row.col2.length > 5) {
+                    const newCol1 = add2(row.col1);
+                    const newCol2 = row.col2.slice(-5);
+                    const newCol3 = commandsDict[newCol2] || 'Unknown';
+                    newRows.push({ _tempOrder: index + 0.5, col1: newCol1, col2: newCol2, col3: newCol3 });
+                }
+            });
+
+            // 排序并返回最终数据（无表头）
+            return newRows.sort((a, b) => a._tempOrder - b._tempOrder)
+                .map(item => `${item.col1},${item.col2},"${item.col3}"`);
+        }
+
+        // 步骤2：CSV数据转地址-指令字典
+        function csvToDisasDict(csvLines) {
+            const disas = {};
+            csvLines.forEach(line => {
+                // 解析CSV行（处理第3列引号）
+                const parts = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+                if (parts.length < 3) return;
+                const addr = parts[0].trim();
+                const cmd = parts[2].replace(/"/g, '').trim();
+                disas[addr] = cmd;
+            });
+            return disas;
+        }
+
+        // 步骤3：Gadget查找类
+        class GadgetFinder {
+            constructor(maxLen, ignoreB, ignoreBc, useRe) {
+                this.blList = [];
+                this.maxLen = maxLen;
+                this.ignoreB = ignoreB;
+                this.ignoreBc = ignoreBc;
+                this.useRe = useRe;
+            }
+
+            findGadget(addr, disas, parentGadget = {}) {
+                let currentAddr = addr;
+                const gadget = { ...parentGadget };
+                const output = [];
+
+                while (true) {
+                    const cmd = disas[currentAddr];
+                    if (!cmd) break;
+                    if (Object.keys(gadget).length >= this.maxLen) break;
+
+                    gadget[currentAddr] = cmd;
+                    // 终止条件：POP PC 或 RT
+                    if (cmd === 'POP  PC' || cmd === 'RT') {
+                        output.push({ ...gadget });
+                        break;
+                    }
+                    // 处理BC指令
+                    else if (cmd.startsWith('BC') && !cmd.startsWith('BC  AL')) {
+                        if (this.ignoreBc) break;
+                        const bAddr = getBAddr(cmd);
+                        if (!this.blList.includes(bAddr)) {
+                            this.blList.push(bAddr);
+                            const children = this.findGadget(bAddr, disas, gadget);
+                            output.push(...children);
+                        }
+                        currentAddr = add2(currentAddr);
+                    }
+                    // 处理B/BL指令
+                    else if (cmd.startsWith('B') && !cmd.includes('R')) {
+                        if (this.ignoreB) break;
+                        const bAddr = getBAddr(cmd);
+                        if (!this.blList.includes(bAddr)) {
+                            this.blList.push(bAddr);
+                            currentAddr = bAddr;
+                        } else break;
+                    }
+                    // 处理L/ST h指令（地址+4）
+                    else if ((cmd.startsWith('L') || cmd.startsWith('ST  ')) && cmd.includes('h')) {
+                        currentAddr = add2(add2(currentAddr));
+                    }
+                    // 普通指令（地址+2）
+                    else {
+                        currentAddr = add2(currentAddr);
+                    }
+                }
+                return output;
+            }
+        }
+
+        // 步骤4：查找指令对应的地址
+        function findCommandAddr(pattern, disas, useRe) {
+            return Object.entries(disas)
+                .filter(([_, cmd]) => match(cmd, pattern, useRe))
+                .map(([addr]) => addr);
+        }
+
+        // 步骤5：匹配gadget是否符合指令序列
+        function checkGadgetMatch(gadget, commandList, useRe) {
+            const cmds = Object.values(gadget);
+            let matchCount = 0;
+            for (const cmd of cmds) {
+                if (match(cmd, commandList[matchCount], useRe)) {
+                    matchCount++;
+                    if (matchCount >= commandList.length) return true;
+                }
+            }
+            return false;
+        }
+
+        // 页面交互逻辑
+        document.addEventListener('DOMContentLoaded', () => {
+            // 指令输入添加
+            const commandListEl = document.getElementById('commandList');
+            document.getElementById('addCmdBtn').addEventListener('click', () => {
+                const cmdInput = document.createElement('div');
+                cmdInput.className = 'command-input';
+                cmdInput.innerHTML = '<input type="text" class="cmdInput" placeholder="输入指令">';
+                commandListEl.appendChild(cmdInput);
+            });
+
+            // 执行处理
+            document.getElementById('runBtn').addEventListener('click', async () => {
+                const resultEl = document.getElementById('result');
+                resultEl.textContent = '处理中...';
+                try {
+                    // 1. 获取文件
+                    const fileInput = document.getElementById('fileInput');
+                    if (!fileInput.files[0]) throw new Error('请先上传TXT文件');
+                    const file = fileInput.files[0];
+                    const txtContent = await file.text();
+
+                    // 2. 获取参数
+                    const maxLen = parseInt(document.getElementById('maxLen').value) || 2;
+                    const useRe = (document.getElementById('useRe').value.toLowerCase() === 'y');
+                    const ignoreB = (document.getElementById('ignoreB').value.toLowerCase() === 'y');
+                    const ignoreBc = (document.getElementById('ignoreBc').value.toLowerCase() !== 'n');
+                    const cmdInputs = document.querySelectorAll('.cmdInput');
+                    const commandList = Array.from(cmdInputs)
+                        .map(input => input.value.trim())
+                        .filter(cmd => cmd);
+                    if (commandList.length === 0) throw new Error('请至少输入1个目标指令');
+
+                    // 3. 执行核心逻辑
+                    const csvLines = txtToCsvData(txtContent);
+                    const disas = csvToDisasDict(csvLines);
+                    const ggtFinder = new GadgetFinder(maxLen, ignoreB, ignoreBc, useRe);
+                    const startAddrs = findCommandAddr(commandList[0], disas, useRe);
+                    const gadgets = [];
+                    startAddrs.forEach(addr => {
+                        const output = ggtFinder.findGadget(addr, disas);
+                        gadgets.push(...output);
+                    });
+
+                    // 4. 筛选匹配的gadget
+                    const finalGadgets = gadgets.filter(gadget => checkGadgetMatch(gadget, commandList, useRe));
+
+                    // 5. 展示结果
+                    if (finalGadgets.length === 0) {
+                        resultEl.textContent = 'No gadgets found.';
+                        return;
+                    }
+                    let resultStr = '';
+                    finalGadgets.forEach((gadget, idx) => {
+                        resultStr += `Gadget ${idx + 1}:\n`;
+                        Object.entries(gadget).forEach(([addr, cmd]) => {
+                            resultStr += `${addr}\t${cmd}\n`;
+                        });
+                        resultStr += '\n'; // 空行分隔
+                    });
+                    resultEl.textContent = resultStr.trim();
+                } catch (err) {
+                    resultEl.textContent = `错误：${err.message}`;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
