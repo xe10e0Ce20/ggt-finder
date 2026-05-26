@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gadget-finder-cache-v2'; // 更新版本号以触发更新
+const CACHE_NAME = 'gadget-finder-cache-v2';
 const CACHE_RESOURCES = ['/', 'index.html', 'sw.js'];
 
 self.addEventListener('install', (event) => {
