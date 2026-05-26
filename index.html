@@ -11,7 +11,7 @@
         h2 { margin-bottom: 15px; color: #333; }
         .input-group { margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
         label { font-weight: 600; color: #444; }
-        .checkbox-group { display: flex; align-items: center; gap: 8px; }
+        .checkbox-group { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
         .checkbox-group label { font-weight: normal; }
         input, textarea, button { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
         button { background: #165DFF; color: #fff; border: none; cursor: pointer; transition: background 0.3s; }
@@ -41,22 +41,18 @@
         <div class="section">
             <h2>2. 配置处理参数</h2>
             <div class="input-group">
-                <label for="csvName">CSV默认名称（留空为_disas.csv）</label>
-                <input type="text" id="csvName" placeholder="_disas.csv">
-            </div>
-            <div class="input-group">
                 <label for="maxLen">最大长度（留空为2）</label>
                 <input type="number" id="maxLen" placeholder="2" min="1">
             </div>
-            <div class="input-group checkbox-group">
+            <div class="checkbox-group">
                 <input type="checkbox" id="useRe">
                 <label for="useRe">使用正则匹配指令</label>
             </div>
-            <div class="input-group checkbox-group">
+            <div class="checkbox-group">
                 <input type="checkbox" id="ignoreB">
                 <label for="ignoreB">忽略 B、BL、BC AL 指令</label>
             </div>
-            <div class="input-group checkbox-group">
+            <div class="checkbox-group">
                 <input type="checkbox" id="ignoreBc" checked>
                 <label for="ignoreBc">忽略 BC 指令（默认开启）</label>
             </div>
@@ -258,7 +254,7 @@
                     const disas = csvToDisasDict(csvLines);
                     const ggtFinder = new GadgetFinder(maxLen, ignoreB, ignoreBc, useRe);
                     let startAddrs = findCommandAddr(commandList[0], disas, useRe);
-                    startAddrs.sort((a, b) => parseInt(a, 16) - parseInt(b, 16)); // 按地址数值排序，保证输出顺序稳定
+                    startAddrs.sort((a, b) => parseInt(a, 16) - parseInt(b, 16));
                     const gadgets = [];
                     startAddrs.forEach(addr => {
                         const output = ggtFinder.findGadget(addr, disas);
