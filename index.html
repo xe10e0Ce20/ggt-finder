@@ -27,7 +27,6 @@
     <div class="container">
         <h1>Gadget Finder Tool</h1>
 
-        <!-- 文件上传区 -->
         <div class="section">
             <h2>1. 上传TXT文件</h2>
             <div class="input-group">
@@ -37,7 +36,6 @@
             </div>
         </div>
 
-        <!-- 参数配置区 -->
         <div class="section">
             <h2>2. 配置处理参数</h2>
             <div class="input-group">
@@ -60,15 +58,14 @@
                 <label>目标指令序列（输入后点击添加，空输入结束）</label>
                 <div id="commandList">
                     <div class="command-input">
-                        <input type="text" class="cmdInput" placeholder="输入指令" required>
+                        <input type="text" class="cmdInput" placeholder="输入指令">
                     </div>
                 </div>
                 <button id="addCmdBtn">添加指令</button>
-                <div class="tip">按顺序输入指令，最终会匹配gadget中是否包含该连续/非连续序列<br>指令统一为“xxx[空格][空格]xxx,[空格]xxx的格式。如：<br>MOV[空格][空格]SP,[空格]ER14<br>POP[空格][空格]ER0<br>不用手动加POP  PC或RT，只需输入指令链即可。程序能够自动追踪B指令</div>
+                <div class="tip">按顺序输入指令，最终会匹配gadget中是否包含该连续/非连续序列</div>
             </div>
         </div>
 
-        <!-- 执行与结果区 -->
         <div class="section">
             <h2>3. 执行处理</h2>
             <button id="runBtn">开始处理</button>
@@ -77,56 +74,37 @@
     </div>
 
     <script>
-        // 工具函数：复刻Py核心转换逻辑
-        function toInt16(str) {
-            return parseInt(str, 16);
-        }
-        function toStr(int16) {
-            return int16.toString(16).toUpperCase().padStart(5, '0');
-        }
-        function add2(addr) {
-            const addr16 = toInt16(addr);
-            return toStr(addr16 + 2);
-        }
+        function toInt16(str) { return parseInt(str, 16); }
+        function toStr(int16) { return int16.toString(16).toUpperCase().padStart(5, '0'); }
+        function add2(addr) { return toStr(toInt16(addr) + 2); }
         function match(tar, input, useRe) {
-            if (useRe) {
-                const reg = new RegExp(`^${input}$`);
-                return reg.test(tar);
-            }
+            if (useRe) { const reg = new RegExp(`^${input}$`); return reg.test(tar); }
             return tar === input;
         }
         function getBAddr(command) {
-            if (command.startsWith('BC')) {
-                return command.slice(-6, -1);
-            } else if (!command.includes('R')) {
-                return command.at(-9) + command.slice(-5, -1);
-            }
+            if (command.startsWith('BC')) return command.slice(-6, -1);
+            if (!command.includes('R')) return command.at(-9) + command.slice(-5, -1);
             return '';
         }
 
         function txtToCsvData(txtContent) {
-            const lines = txtContent.split('\n').map(line => line.trim()).filter(line => line);
+            const lines = txtContent.split('\n').map(l => l.trim()).filter(l => l);
             const processedData = [];
             const pattern = / {2,}/;
-
             lines.forEach(line => {
                 const match1 = line.match(pattern);
                 if (!match1) return;
-
                 const tempLine = line.slice(0, match1.index) + ',' + line.slice(match1.index + match1[0].length);
                 const searchStart = match1.index + 1;
                 const match2 = tempLine.slice(searchStart).match(pattern);
                 if (!match2) return;
-
                 const col1 = tempLine.slice(0, match1.index).slice(1);
                 const start2 = match1.index + 1;
                 const end2 = searchStart + match2.index;
                 const col2 = tempLine.slice(start2, end2);
                 let col3Raw = tempLine.slice(searchStart + match2.index + match2[0].length);
-                const col3Standardized = col3Raw.replace(pattern, '  ');
-                processedData.push({ col1, col2, col3: col3Standardized });
+                processedData.push({ col1, col2, col3: col3Raw.replace(pattern, '  ') });
             });
-
             const newRows = [];
             const commandsDict = Object.fromEntries(processedData.map(item => [item.col2, item.col3]));
             processedData.forEach((row, index) => {
@@ -134,13 +112,10 @@
                 if (row.col2.length > 5) {
                     const newCol1 = add2(row.col1);
                     const newCol2 = row.col2.slice(-5);
-                    const newCol3 = commandsDict[newCol2] || 'Unknown';
-                    newRows.push({ _tempOrder: index + 0.5, col1: newCol1, col2: newCol2, col3: newCol3 });
+                    newRows.push({ _tempOrder: index + 0.5, col1: newCol1, col2: newCol2, col3: commandsDict[newCol2] || 'Unknown' });
                 }
             });
-
-            return newRows.sort((a, b) => a._tempOrder - b._tempOrder)
-                .map(item => `${item.col1},${item.col2},"${item.col3}"`);
+            return newRows.sort((a, b) => a._tempOrder - b._tempOrder).map(item => `${item.col1},${item.col2},"${item.col3}"`);
         }
 
         function csvToDisasDict(csvLines) {
@@ -148,9 +123,7 @@
             csvLines.forEach(line => {
                 const parts = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
                 if (parts.length < 3) return;
-                const addr = parts[0].trim();
-                const cmd = parts[2].replace(/"/g, '').trim();
-                disas[addr] = cmd;
+                disas[parts[0].trim()] = parts[2].replace(/"/g, '').trim();
             });
             return disas;
         }
@@ -163,17 +136,13 @@
                 this.ignoreBc = ignoreBc;
                 this.useRe = useRe;
             }
-
             findGadget(addr, disas, parentGadget = {}) {
                 let currentAddr = addr;
                 const gadget = { ...parentGadget };
                 const output = [];
-
                 while (true) {
                     const cmd = disas[currentAddr];
-                    if (!cmd) break;
-                    if (Object.keys(gadget).length >= this.maxLen) break;
-
+                    if (!cmd || Object.keys(gadget).length >= this.maxLen) break;
                     gadget[currentAddr] = cmd;
                     if (cmd === 'POP  PC' || cmd === 'RT') {
                         output.push({ ...gadget });
@@ -183,8 +152,7 @@
                         const bAddr = getBAddr(cmd);
                         if (!this.blList.includes(bAddr)) {
                             this.blList.push(bAddr);
-                            const children = this.findGadget(bAddr, disas, gadget);
-                            output.push(...children);
+                            output.push(...this.findGadget(bAddr, disas, gadget));
                         }
                         currentAddr = add2(currentAddr);
                     } else if (cmd.startsWith('B') && !cmd.includes('R')) {
@@ -223,12 +191,11 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            const commandListEl = document.getElementById('commandList');
             document.getElementById('addCmdBtn').addEventListener('click', () => {
-                const cmdInput = document.createElement('div');
-                cmdInput.className = 'command-input';
-                cmdInput.innerHTML = '<input type="text" class="cmdInput" placeholder="输入指令">';
-                commandListEl.appendChild(cmdInput);
+                const div = document.createElement('div');
+                div.className = 'command-input';
+                div.innerHTML = '<input type="text" class="cmdInput" placeholder="输入指令">';
+                document.getElementById('commandList').appendChild(div);
             });
 
             document.getElementById('runBtn').addEventListener('click', async () => {
@@ -237,42 +204,37 @@
                 try {
                     const fileInput = document.getElementById('fileInput');
                     if (!fileInput.files[0]) throw new Error('请先上传TXT文件');
-                    const file = fileInput.files[0];
-                    const txtContent = await file.text();
-
+                    const txtContent = await fileInput.files[0].text();
                     const maxLen = parseInt(document.getElementById('maxLen').value) || 2;
                     const useRe = document.getElementById('useRe').checked;
                     const ignoreB = document.getElementById('ignoreB').checked;
                     const ignoreBc = document.getElementById('ignoreBc').checked;
-                    const cmdInputs = document.querySelectorAll('.cmdInput');
-                    const commandList = Array.from(cmdInputs)
+                    const commandList = Array.from(document.querySelectorAll('.cmdInput'))
                         .map(input => input.value.trim())
                         .filter(cmd => cmd);
                     if (commandList.length === 0) throw new Error('请至少输入1个目标指令');
 
                     const csvLines = txtToCsvData(txtContent);
                     const disas = csvToDisasDict(csvLines);
-                    const ggtFinder = new GadgetFinder(maxLen, ignoreB, ignoreBc, useRe);
+                    const finder = new GadgetFinder(maxLen, ignoreB, ignoreBc, useRe);
                     let startAddrs = findCommandAddr(commandList[0], disas, useRe);
                     startAddrs.sort((a, b) => parseInt(a, 16) - parseInt(b, 16));
                     const gadgets = [];
-                    startAddrs.forEach(addr => {
-                        const output = ggtFinder.findGadget(addr, disas);
-                        gadgets.push(...output);
-                    });
-
-                    const finalGadgets = gadgets.filter(gadget => checkGadgetMatch(gadget, commandList, useRe));
+                    startAddrs.forEach(addr => gadgets.push(...finder.findGadget(addr, disas)));
+                    const finalGadgets = gadgets.filter(g => checkGadgetMatch(g, commandList, useRe));
 
                     if (finalGadgets.length === 0) {
                         resultEl.textContent = 'No gadgets found.';
                         return;
                     }
+
                     let resultStr = '';
                     finalGadgets.forEach((gadget, idx) => {
                         resultStr += `Gadget ${idx + 1}:\n`;
-                        Object.entries(gadget).forEach(([addr, cmd]) => {
-                            resultStr += `${addr}\t${cmd}\n`;
-                        });
+                        // 按地址数值排序，解决插入顺序错乱问题
+                        Object.entries(gadget)
+                            .sort((a, b) => parseInt(a[0], 16) - parseInt(b[0], 16))
+                            .forEach(([addr, cmd]) => resultStr += `${addr}\t${cmd}\n`);
                         resultStr += '\n';
                     });
                     resultEl.textContent = resultStr.trim();
